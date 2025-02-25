@@ -1,0 +1,26 @@
+[
+  {
+    "address": "So11111111111111111111111111111111111111112",
+    "name": "Wrapped SOL",
+    "symbol": "SOL",
+    "decimals": 9
+  },
+  {
+    "address": "jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v",
+    "name": "Jupiter Staked SOL",
+    "symbol": "JupSOL",
+    "decimals": 9
+  },
+  {
+    "address": "27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4",
+    "name": "Jupiter Perps",
+    "symbol": "JLP",
+    "decimals": 6
+  },
+  {
+    "address": "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
+    "name": "Jupiter",
+    "symbol": "JUP",
+    "decimals": 6
+  }
+]
