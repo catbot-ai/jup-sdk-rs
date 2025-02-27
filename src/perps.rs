@@ -54,7 +54,6 @@ where
     Side::from_str(&s).map_err(|_| serde::de::Error::custom(format!("Invalid side: {}", s)))
 }
 
-// Ensure camelCase naming aligns with JSON
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct TpslRequests {
@@ -64,7 +63,7 @@ pub struct TpslRequests {
     pub sl: Option<TpslRequest>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct TpslRequest {
     pub desired_mint: String,
@@ -96,6 +95,68 @@ pub enum Side {
     Short,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "snake_case")]
+pub struct PerpsPosition {
+    pub side: Side,              // Position side: Long or Short
+    pub symbol: String,          // Trading pair symbol (e.g., "SOL")
+    pub confidence: f64,         // Confidence score between 0.0 and 1.0
+    pub entry_price: f64,        // Entry price of the position
+    pub leverage: f64,           // Leverage used for the position
+    pub liquidation_price: f64,  // Liquidation price of the position
+    pub pnl_after_fees_usd: f64, // Profit/loss after fees in USD
+    pub value: f64,              // Current position value in USD
+    pub target_price: f64,       // Current target price in USD
+    pub stop_loss: f64,          // Current stop loss in USD
+}
+
+impl From<PositionData> for PerpsPosition {
+    fn from(position: PositionData) -> Self {
+        // Symbol extracted from market_mint, assuming "XXXUSDT" format
+        let symbol = position
+            .market_mint
+            .split("USDT")
+            .next()
+            .unwrap_or("UNKNOWN")
+            .to_string();
+
+        // Parse numeric fields with error handling, defaulting sensibly
+        let entry_price = position.entry_price.parse().unwrap_or(0.0);
+        let leverage = position.leverage.parse().unwrap_or(1.1); // 1x leverage as fallback
+        let liquidation_price = position.liquidation_price.parse().unwrap_or(0.0);
+        let confidence = 0.5; // Placeholder; could derive from PNL or external logic
+        let pnl_after_fees_usd = position.pnl_after_fees_usd.parse().unwrap_or(0.0);
+        let value = position.value.parse().unwrap_or(0.0);
+        let target_price = position
+            .tpsl_requests
+            .tp
+            .unwrap_or_default()
+            .trigger_price_usd
+            .parse()
+            .unwrap_or(0.0);
+        let stop_loss = position
+            .tpsl_requests
+            .sl
+            .unwrap_or_default()
+            .trigger_price_usd
+            .parse()
+            .unwrap_or(0.0);
+
+        PerpsPosition {
+            side: position.side, // Already Side enum, no conversion needed
+            symbol,
+            confidence,
+            entry_price,
+            leverage,
+            liquidation_price,
+            pnl_after_fees_usd,
+            value,
+            target_price,
+            stop_loss,
+        }
+    }
+}
+
 const PERPS_API_BASE: &str = "https://perps-api.jup.ag/v1";
 
 pub struct PerpsFetcher {
@@ -116,7 +177,6 @@ impl PerpsFetcher {
             "{}/positions?walletAddress={}&showTpslRequests=true",
             PERPS_API_BASE, wallet_address
         );
-
         let response = self.client.get(&url).send().await?;
         response
             .json()
@@ -168,6 +228,16 @@ impl PerpsFetcher {
             position_pnls,
         })
     }
+
+    // New method to fetch and convert to PerpsPosition
+    pub async fn fetch_perps_positions(&self, wallet_address: &str) -> Result<Vec<PerpsPosition>> {
+        let positions_response = self.fetch_positions(wallet_address).await?;
+        Ok(positions_response
+            .data_list
+            .into_iter()
+            .map(PerpsPosition::from)
+            .collect())
+    }
 }
 
 #[cfg(test)]
@@ -181,20 +251,38 @@ mod tests {
 
         let perps_fetcher = PerpsFetcher::default();
         let positions = perps_fetcher.fetch_positions(&wallet_address).await?;
-        println!("Fetched {} positions:", positions.count);
+        println!("Fetched {:#?} positions:", positions);
         if let Some(pos) = positions.data_list.first() {
             println!(
-                "First position: {} ({}), PNL: ${}, TP: {:?}, SL: {:?}",
-                pos.position_pubkey,
+                "First position: {} {}x, PNL: {}, TP: {:?}, SL: {:?}",
                 pos.side,
+                pos.leverage,
                 pos.pnl_after_fees_usd,
                 pos.tpsl_requests.tp,
                 pos.tpsl_requests.sl
             );
-            // Debug raw tpsl_requests
             println!("Raw tpsl_requests: {:?}", pos.tpsl_requests);
         } else {
             println!("No positions found.");
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_fetch_perps_positions() -> Result<()> {
+        dotenvy::from_filename(".env").expect("No .env file");
+        let wallet_address = std::env::var("WALLET_ADDRESS").expect("WALLET_ADDRESS not set");
+
+        let perps_fetcher = PerpsFetcher::default();
+        let perps_positions = perps_fetcher.fetch_perps_positions(&wallet_address).await?;
+        println!("Fetched {} perps positions:", perps_positions.len());
+        if let Some(pos) = perps_positions.first() {
+            println!(
+                "First position: {} {}x, PNL: {}, TP: {:?}, SL: {:?}",
+                pos.side, pos.leverage, pos.entry_price, pos.pnl_after_fees_usd, pos.value
+            );
+        } else {
+            println!("No perps positions found.");
         }
         Ok(())
     }
