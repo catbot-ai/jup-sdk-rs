@@ -98,16 +98,16 @@ pub enum Side {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct PerpsPosition {
-    pub side: Side,              // Position side: Long or Short
-    pub symbol: String,          // Trading pair symbol (e.g., "SOL")
-    pub confidence: f64,         // Confidence score between 0.0 and 1.0
-    pub entry_price: f64,        // Entry price of the position
-    pub leverage: f64,           // Leverage used for the position
-    pub liquidation_price: f64,  // Liquidation price of the position
-    pub pnl_after_fees_usd: f64, // Profit/loss after fees in USD
-    pub value: f64,              // Current position value in USD
-    pub target_price: f64,       // Current target price in USD
-    pub stop_loss: f64,          // Current stop loss in USD
+    pub side: Side,                // Position side: Long or Short
+    pub symbol: String,            // Trading pair symbol (e.g., "SOL")
+    pub confidence: f64,           // Confidence score between 0.0 and 1.0
+    pub entry_price: f64,          // Entry price of the position
+    pub leverage: f64,             // Leverage used for the position
+    pub liquidation_price: f64,    // Liquidation price of the position
+    pub pnl_after_fees_usd: f64,   // Profit/loss after fees in USD
+    pub value: f64,                // Current position value in USD
+    pub target_price: Option<f64>, // Current target price in USD
+    pub stop_loss: Option<f64>,    // Current stop loss in USD
 }
 
 impl From<PositionData> for PerpsPosition {
@@ -133,14 +133,14 @@ impl From<PositionData> for PerpsPosition {
             .unwrap_or_default()
             .trigger_price_usd
             .parse()
-            .unwrap_or(0.0);
+            .ok();
         let stop_loss = position
             .tpsl_requests
             .sl
             .unwrap_or_default()
             .trigger_price_usd
             .parse()
-            .unwrap_or(0.0);
+            .ok();
 
         PerpsPosition {
             side: position.side, // Already Side enum, no conversion needed
