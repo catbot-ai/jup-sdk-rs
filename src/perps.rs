@@ -12,7 +12,7 @@ pub struct PositionsResponse {
     pub data_list: Vec<PositionData>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct PositionData {
     pub borrow_fees: String,
@@ -51,22 +51,26 @@ where
     D: serde::Deserializer<'de>,
 {
     let s: String = Deserialize::deserialize(deserializer)?;
-    Side::from_str(&s).map_err(|_| serde::de::Error::custom(format!("Invalid side value: {}", s)))
+    Side::from_str(&s).map_err(|_| serde::de::Error::custom(format!("Invalid side: {}", s)))
 }
 
-#[derive(Serialize, Deserialize, Debug, Default)] // Added Default for cases where tp or sl are null
+// Ensure camelCase naming aligns with JSON
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct TpslRequests {
-    pub tp: Option<TpslRequest>, // Option to handle null values
-    pub sl: Option<TpslRequest>, // Option to handle null values
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tp: Option<TpslRequest>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sl: Option<TpslRequest>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Default)] // Added Default for TpslRequest as well, though might not be strictly necessary
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct TpslRequest {
-    // Define struct for tp/sl if they are not always null and have a structure
-    // Add fields for tp and sl requests if they are not always null and have a specific structure
-    // Based on the example, they are null, so for now, an empty struct or just Option<TpslRequest> is sufficient
+    pub desired_mint: String,
+    pub position_request_pubkey: String,
+    pub trigger_price: String,
+    pub trigger_price_usd: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -109,19 +113,15 @@ impl Default for PerpsFetcher {
 impl PerpsFetcher {
     pub async fn fetch_positions(&self, wallet_address: &str) -> Result<PositionsResponse> {
         let url = format!(
-            "{}/positions?walletAddress={}",
+            "{}/positions?walletAddress={}&showTpslRequests=true",
             PERPS_API_BASE, wallet_address
         );
+
         let response = self.client.get(&url).send().await?;
-        if response.status().is_success() {
-            let positions_response: PositionsResponse = response.json().await?;
-            Ok(positions_response)
-        } else {
-            Err(anyhow!(
-                "Failed to fetch positions. Status: {}",
-                response.status()
-            ))
-        }
+        response
+            .json()
+            .await
+            .map_err(|e| anyhow!("Failed to fetch positions: {}", e))
     }
 
     pub async fn fetch_positions_pnl_and_format(
@@ -131,23 +131,24 @@ impl PerpsFetcher {
         let positions_response = self.fetch_positions(wallet_address).await?;
         let mut total_pnl_usd = 0.0;
         let mut total_pnl_percent = 0.0;
-        let mut position_pnls: Vec<PositionPNL> = Vec::new();
+        let mut position_pnls = Vec::new();
 
         for position in positions_response.data_list {
-            let pnl_usd = position.pnl_after_fees_usd.parse::<f64>().map_err(|_| {
+            let pnl_usd = position.pnl_after_fees_usd.parse::<f64>().map_err(|e| {
                 anyhow!(
-                    "Failed to parse pnl_after_fees_usd to f64: {}",
-                    position.pnl_after_fees_usd
+                    "Failed to parse pnl_after_fees_usd '{}': {}",
+                    position.pnl_after_fees_usd,
+                    e
                 )
             })?;
-
             let pnl_percent = position
                 .pnl_change_pct_after_fees
                 .parse::<f64>()
-                .map_err(|_| {
+                .map_err(|e| {
                     anyhow!(
-                        "Failed to parse pnl_change_pct_after_fees to f64: {}",
-                        position.pnl_change_pct_after_fees
+                        "Failed to parse pnl_change_pct_after_fees '{}': {}",
+                        position.pnl_change_pct_after_fees,
+                        e
                     )
                 })?;
 
@@ -175,56 +176,26 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_positions() -> Result<()> {
+        dotenvy::from_filename(".env").expect("No .env file");
+        let wallet_address = std::env::var("WALLET_ADDRESS").expect("WALLET_ADDRESS not set");
+
         let perps_fetcher = PerpsFetcher::default();
-        let wallet_address = "...";
-
-        println!("Fetching positions for wallet: {}", wallet_address);
-        let positions_result = perps_fetcher.fetch_positions(wallet_address).await;
-
-        match positions_result {
-            Ok(positions) => {
-                println!("Successfully fetched positions:");
-                println!("{:#?}", positions); // Using pretty print for better readability
-                if let Some(first_position) = positions.data_list.first() {
-                    println!("\nDetails of the first position:");
-                    println!("  Position Pubkey: {}", first_position.position_pubkey);
-                    println!("  Side: {}", first_position.side);
-                    println!("  Size: {}", first_position.size);
-                    println!(
-                        "  Pnl After Fees Usd: {}",
-                        first_position.pnl_after_fees_usd
-                    );
-                    println!("  Collateral: {}", first_position.collateral);
-                    println!("  Leverage: {}", first_position.leverage);
-                    println!("  Entry Price: {}", first_position.entry_price);
-                    println!("  Liquidation Price: {}", first_position.liquidation_price);
-                    println!("  Total Fees Usd: {}", first_position.total_fees_usd);
-                    println!("  Open Fees Usd: {}", first_position.open_fees_usd);
-                    println!("  Close Fees Usd: {}", first_position.close_fees_usd);
-                    println!("  Borrow Fees Usd: {}", first_position.borrow_fees_usd);
-                    println!("  Created Time: {}", first_position.created_time);
-                    println!("  Updated Time: {}", first_position.updated_time);
-
-                    if let Some(tp_request) = &first_position.tpsl_requests.tp {
-                        println!("  Take Profit Request: {:?}", tp_request);
-                    } else {
-                        println!("  Take Profit Request: None");
-                    }
-
-                    if let Some(sl_request) = &first_position.tpsl_requests.sl {
-                        println!("  Stop Loss Request: {:?}", sl_request);
-                    } else {
-                        println!("  Stop Loss Request: None");
-                    }
-                } else {
-                    println!("No positions found in the response.");
-                }
-            }
-            Err(e) => {
-                eprintln!("Error fetching positions: {:?}", e);
-            }
+        let positions = perps_fetcher.fetch_positions(&wallet_address).await?;
+        println!("Fetched {} positions:", positions.count);
+        if let Some(pos) = positions.data_list.first() {
+            println!(
+                "First position: {} ({}), PNL: ${}, TP: {:?}, SL: {:?}",
+                pos.position_pubkey,
+                pos.side,
+                pos.pnl_after_fees_usd,
+                pos.tpsl_requests.tp,
+                pos.tpsl_requests.sl
+            );
+            // Debug raw tpsl_requests
+            println!("Raw tpsl_requests: {:?}", pos.tpsl_requests);
+        } else {
+            println!("No positions found.");
         }
-
         Ok(())
     }
 }
