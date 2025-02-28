@@ -99,7 +99,8 @@ pub enum Side {
 #[serde(rename_all = "snake_case")]
 pub struct PerpsPosition {
     pub side: Side,                // Position side: Long or Short
-    pub symbol: String,            // Trading pair symbol (e.g., "SOL")
+    pub market_mint: String,       // So11111111111111111111111111111111111111112
+    pub collateral_mint: String,   // EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
     pub confidence: f64,           // Confidence score between 0.0 and 1.0
     pub entry_price: f64,          // Entry price of the position
     pub leverage: f64,             // Leverage used for the position
@@ -112,15 +113,6 @@ pub struct PerpsPosition {
 
 impl From<PositionData> for PerpsPosition {
     fn from(position: PositionData) -> Self {
-        // Symbol extracted from market_mint, assuming "XXXUSDT" format
-        let symbol = position
-            .market_mint
-            .split("USDT")
-            .next()
-            .unwrap_or("UNKNOWN")
-            .to_string();
-
-        // Parse numeric fields with error handling, defaulting sensibly
         let entry_price = position.entry_price.parse().unwrap_or(0.0);
         let leverage = position.leverage.parse().unwrap_or(1.1); // 1x leverage as fallback
         let liquidation_price = position.liquidation_price.parse().unwrap_or(0.0);
@@ -143,8 +135,9 @@ impl From<PositionData> for PerpsPosition {
             .ok();
 
         PerpsPosition {
-            side: position.side, // Already Side enum, no conversion needed
-            symbol,
+            side: position.side,
+            market_mint: position.market_mint,
+            collateral_mint: position.collateral_mint,
             confidence,
             entry_price,
             leverage,
@@ -276,7 +269,9 @@ mod tests {
         let perps_fetcher = PerpsFetcher::default();
         let perps_positions = perps_fetcher.fetch_perps_positions(&wallet_address).await?;
         println!("Fetched {} perps positions:", perps_positions.len());
+
         if let Some(pos) = perps_positions.first() {
+            println!("{:#?}", perps_positions);
             println!(
                 "First position: {} {}x, PNL: {}, TP: {:?}, SL: {:?}",
                 pos.side, pos.leverage, pos.entry_price, pos.pnl_after_fees_usd, pos.value
