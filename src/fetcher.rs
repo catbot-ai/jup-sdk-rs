@@ -70,19 +70,15 @@ impl Fetcher {
         Self { settings }
     }
 
-    pub async fn fetch_with_retry<F, R, T>(&self, url: &str, processor: F) -> Result<T>
-    where
-        R: DeserializeOwned,
-        F: Fn(R) -> Result<T>,
-    {
+    pub async fn fetch_with_retry<T: DeserializeOwned>(&self, url: &str) -> Result<T> {
         let mut retries = 0;
 
         loop {
             match timeout(self.settings.request_timeout, reqwest::get(url)).await {
                 Ok(response) => {
                     let response = response?;
-                    let api_response = response.json::<R>().await?;
-                    return processor(api_response);
+                    let api_response = response.json::<T>().await?;
+                    return Ok(api_response);
                 }
                 Err(e) => {
                     retries += 1;

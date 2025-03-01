@@ -58,6 +58,20 @@ pub struct PriceResponse {
     time_taken: f64,
 }
 
+impl PriceResponse {
+    fn into_price_map(self) -> Result<HashMap<String, f64>> {
+        self.data
+            .into_iter()
+            .map(|(address, data)| {
+                data.price
+                    .parse::<f64>()
+                    .map(|price| (address, price))
+                    .map_err(|e| anyhow!("Failed to parse price: {}", e))
+            })
+            .collect()
+    }
+}
+
 const JUP_API: &str = "https://api.jup.ag/price/v2";
 
 /// A dedicated struct for fetching prices.
@@ -115,20 +129,8 @@ impl PriceFetcher {
 
     /// Shared logic for fetching prices.
     async fn fetch_price_internal(&self, url: &str) -> Result<HashMap<String, f64>> {
-        self.fetcher
-            .fetch_with_retry(url, |response: PriceResponse| {
-                response
-                    .data
-                    .iter()
-                    .map(|(address, data)| {
-                        data.price
-                            .parse::<f64>()
-                            .map(|price| (address.clone(), price))
-                            .map_err(|e| anyhow!("Failed to parse price for {}: {}", address, e))
-                    })
-                    .collect()
-            })
-            .await
+        let response = self.fetcher.fetch_with_retry::<PriceResponse>(url).await?;
+        response.into_price_map()
     }
 
     /// Fetches and formats the price for a single token or a token pair.
