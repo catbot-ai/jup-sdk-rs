@@ -128,12 +128,11 @@ mod tests {
 
     #[test]
     fn test_get_logo_by_mint_address() {
-        let logo = get_token_logo_url_by_mint_address(
-            &TokenRegistry::new()
-                .get_by_symbol(&TokenSymbol::USDC)
-                .unwrap()
-                .address,
-        );
+        let registry = TokenRegistry::new();
+        let usdc_token = registry.get_by_symbol(&TokenSymbol::USDC).unwrap();
+        let mint_address = usdc_token.address.clone();
+
+        let logo = get_token_logo_url_by_mint_address(&mint_address);
 
         assert_eq!(
             logo,

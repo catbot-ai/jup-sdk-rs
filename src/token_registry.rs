@@ -1,141 +1,245 @@
-use anyhow::{bail, Context};
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-
-use std::fs::File;
-use std::io::BufReader;
+use serde_json;
+use std::{collections::HashMap, fmt, str::FromStr};
 
 use crate::prices::TokenSymbol;
 
-#[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct Token {
-    pub address: String,
-    pub symbol: TokenSymbol,
-    pub name: String,
-    pub decimals: u8,
+// Embedded JSON data
+const TOKENS_JSON: &str = r#"
+[
+  {
+    "address": "So11111111111111111111111111111111111111112",
+    "symbol": "SOL",
+    "name": "Wrapped SOL",
+    "decimals": 9,
+    "stable": false
+  },
+  {
+    "address": "jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v",
+    "symbol": "JupSOL",
+    "name": "Jupiter Staked SOL",
+    "decimals": 9,
+    "stable": false
+  },
+  {
+    "address": "27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4",
+    "symbol": "JLP",
+    "name": "Jupiter Perps",
+    "decimals": 6,
+    "stable": false
+  },
+  {
+    "address": "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
+    "symbol": "JUP",
+    "name": "Jupiter",
+    "decimals": 6,
+    "stable": false
+  },
+  {
+    "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "symbol": "USDC",
+    "name": "USD Coin",
+    "decimals": 6,
+    "stable": true
+  }
+]
+"#;
+
+const PAIRS_JSON: &str = r#"
+[
+  ["jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v", "So11111111111111111111111111111111111111112"],
+  ["27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4", "So11111111111111111111111111111111111111112"]
+]
+"#;
+
+// TokenSymbol now carries its string representation
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TokenSymbolString(String);
+
+impl<'de> Deserialize<'de> for TokenSymbolString {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s: String = Deserialize::deserialize(deserializer)?;
+        Ok(TokenSymbolString(s))
+    }
 }
 
-#[derive(Debug, Default, Clone)]
+impl fmt::Display for TokenSymbolString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl AsRef<str> for TokenSymbolString {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+pub struct Token {
+    pub address: String,
+    pub symbol: TokenSymbolString,
+    pub name: String,
+    pub decimals: u8,
+    pub stable: bool,
+}
+
+#[derive(Debug, Clone)]
 pub struct TokenRegistry {
     pub tokens: Vec<Token>,
+    #[allow(unused)]
     pub pairs: Vec<[Token; 2]>,
-    pub stable_tokens: Vec<Token>,
+    pub address_map: HashMap<String, Token>,
+    pub symbol_map: HashMap<String, TokenSymbolString>,
 }
 
 impl TokenRegistry {
     pub fn new() -> Self {
-        let file_path = "./tokens/default.json";
-        let stable_file_path = "./tokens/stable.json";
-        let pairs_file_path = "./tokens/pairs.json";
-        let tokens = Self::load_tokens(file_path).expect("Missing default.json");
-        let stable_tokens = Self::load_tokens(stable_file_path).expect("Missing stable.json");
-        let pairs = Self::load_pairs(tokens.clone(), pairs_file_path).expect("Missing pairs.json");
+        // Parse tokens
+        let tokens: Vec<Token> = serde_json::from_str(TOKENS_JSON).expect("Invalid tokens JSON");
 
-        TokenRegistry {
-            tokens,
-            pairs,
-            stable_tokens,
-        }
-    }
+        // Create symbol map
+        let symbol_map: HashMap<String, TokenSymbolString> = tokens
+            .iter()
+            .map(|t| (t.symbol.0.clone(), t.symbol.clone()))
+            .collect();
 
-    fn load_tokens(file_path: &str) -> anyhow::Result<Vec<Token>> {
-        let file = File::open(file_path).context("Failed to open file")?;
-        let reader = BufReader::new(file);
-        let tokens = serde_json::from_reader(reader)?;
+        // Create address map
+        let address_map: HashMap<String, Token> = tokens
+            .iter()
+            .map(|t| (t.address.clone(), t.clone()))
+            .collect();
 
-        Ok(tokens)
-    }
-
-    fn load_pairs(tokens: Vec<Token>, file_path: &str) -> anyhow::Result<Vec<[Token; 2]>> {
-        let file = File::open(file_path).context("Failed to open file")?;
-        let reader = BufReader::new(file);
-        let pair_addresses: Vec<[String; 2]> = serde_json::from_reader(reader)?;
+        // Parse pairs
+        let pair_addresses: Vec<[String; 2]> =
+            serde_json::from_str(PAIRS_JSON).expect("Invalid pairs JSON");
         let pairs = pair_addresses
             .into_iter()
-            .map(|pair_addresses| {
-                let token_a = tokens
-                    .iter()
-                    .find(|token| token.address == pair_addresses[0])
-                    .expect("Token not found");
-                let token_b = tokens
-                    .iter()
-                    .find(|token| token.address == pair_addresses[1])
-                    .expect("Token not found");
-
-                [token_a.clone(), token_b.clone()]
+            .map(|[addr1, addr2]| {
+                let token1 = address_map.get(&addr1).expect("Pair token1 not found");
+                let token2 = address_map.get(&addr2).expect("Pair token2 not found");
+                [token1.clone(), token2.clone()]
             })
-            .collect::<Vec<_>>();
+            .collect();
 
-        Ok(pairs)
+        Self {
+            tokens,
+            pairs,
+            address_map,
+            symbol_map,
+        }
     }
 
     pub fn get_by_address(&self, address: &str) -> Option<&Token> {
-        self.tokens
-            .iter()
-            .find(|token| token.address == address)
-            .or(self
-                .stable_tokens
-                .iter()
-                .find(|token| token.address == address))
+        self.address_map.get(address)
+    }
+
+    pub fn get_by_symbol_string(&self, symbol_string: &TokenSymbolString) -> Option<&Token> {
+        self.tokens.iter().find(|t| t.symbol == *symbol_string)
     }
 
     pub fn get_by_symbol(&self, symbol: &TokenSymbol) -> Option<&Token> {
-        self.tokens
-            .iter()
-            .find(|token| token.symbol == *symbol)
-            .or(self
-                .stable_tokens
-                .iter()
-                .find(|token| token.symbol == *symbol))
+        self.tokens.iter().find(|t| t.symbol.0 == *symbol.as_ref())
     }
 
-    pub fn get_by_pair_address(&self, address: &str) -> anyhow::Result<Vec<Token>> {
+    pub fn get_by_pair_address(&self, address: &str) -> Option<Vec<Token>> {
         if !address.contains("_") {
-            bail!("Not pair address")
+            return None;
         }
 
         let pairs = address.split("_").collect::<Vec<_>>();
-        let tokens = vec![
-            self.get_by_address(pairs[0])
-                .unwrap_or_else(|| panic!("Not exist: {}", pairs[0]))
-                .clone(),
-            self.get_by_address(pairs[1])
-                .unwrap_or_else(|| panic!("Not exist: {}", pairs[1]))
-                .clone(),
-        ];
+        if pairs.len() != 2 {
+            return None;
+        }
 
-        Ok(tokens)
+        Some(vec![
+            self.address_map
+                .get(pairs[0])
+                .expect("Invalid address")
+                .clone(),
+            self.address_map
+                .get(pairs[1])
+                .expect("Invalid address")
+                .clone(),
+        ])
     }
 
-    pub fn get_tokens_from_pair_address(&self, address: &str) -> anyhow::Result<Vec<Token>> {
-        let tokens = if address.starts_with("SOL_PERPS") {
+    pub fn get_tokens_from_pair_address(&self, address: &str) -> Vec<Token> {
+        if address.starts_with("SOL_PERPS") {
             // TODO: support more token?
             vec![Token {
-                address: "So11111111111111111111111111111111111111112_PERPS".to_owned(),
-                symbol: TokenSymbol::SOL_PERPS,
-                name: address.to_owned(),
-                decimals: 9u8,
+                address: "So11111111111111111111111111111111111111112_PERPS".to_string(),
+                symbol: TokenSymbolString("SOL_PERPS".to_string()),
+                name: "SOL PERPS".to_string(),
+                decimals: 9,
+                stable: false,
             }]
-        } else if address.contains("_") {
-            self.get_by_pair_address(address).expect("Invalid address")
+        } else if let Some(tokens) = self.get_by_pair_address(address) {
+            tokens
         } else if let Some(token) = self.get_by_address(address) {
             vec![token.clone()]
         } else {
             vec![]
-        };
+        }
+    }
 
-        Ok(tokens)
+    pub fn get_pair_or_token_address_from_tokens(&self, tokens: &[Token]) -> String {
+        if tokens.len() == 1 {
+            tokens[0].address.to_string()
+        } else {
+            format!("{}_{}", tokens[0].address, tokens[1].address)
+        }
     }
 }
 
-pub fn get_pair_or_token_address_from_tokens(tokens: &[Token]) -> anyhow::Result<String> {
-    let address = if tokens.len() == 1 {
-        tokens[0].address.clone()
-    } else {
-        format!("{}_{}", tokens[0].address, tokens[1].address)
-    };
+impl Default for TokenRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-    Ok(address)
+impl TokenSymbolString {
+    pub fn to_str(&self) -> String {
+        self.0.to_string()
+    }
+}
+
+impl FromStr for TokenSymbolString {
+    type Err = (); // Use a simple error type (or a custom one)
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Some(token_symbol) = REGISTRY.symbol_map.get(s).cloned() {
+            Ok(token_symbol)
+        } else {
+            Err(()) // Or return a more informative error
+        }
+    }
+}
+
+static REGISTRY: Lazy<TokenRegistry> = Lazy::new(TokenRegistry::new);
+
+pub fn get_by_address(address: &str) -> Option<&'static Token> {
+    REGISTRY.get_by_address(address)
+}
+
+pub fn get_by_symbol(symbol: &TokenSymbolString) -> Option<&'static Token> {
+    REGISTRY.get_by_symbol_string(symbol)
+}
+
+pub fn get_by_pair_address(address: &str) -> Option<Vec<Token>> {
+    REGISTRY.get_by_pair_address(address)
+}
+
+pub fn get_tokens_from_pair_address(address: &str) -> Vec<Token> {
+    REGISTRY.get_tokens_from_pair_address(address)
+}
+
+pub fn get_pair_or_token_address_from_tokens(tokens: &[Token]) -> String {
+    REGISTRY.get_pair_or_token_address_from_tokens(tokens)
 }
 
 pub fn get_symbol_pair_from_tokens(tokens: &[Token]) -> anyhow::Result<String> {
@@ -154,21 +258,28 @@ mod tests {
 
     #[test]
     fn test_token_registry_load_and_parse() {
-        // Make test return Result
-        let token_registry = TokenRegistry::new();
-        let sol_token = token_registry
-            .get_by_address("So11111111111111111111111111111111111111112")
-            .unwrap();
-        let jlp_token = token_registry.get_by_symbol(&TokenSymbol::JLP).unwrap();
+        let sol_token = get_by_address("So11111111111111111111111111111111111111112").unwrap();
+        let jlp_token = get_by_symbol(&TokenSymbolString("JLP".to_string())).unwrap();
 
-        assert_eq!(sol_token.symbol, TokenSymbol::SOL);
-        assert_eq!(jlp_token.symbol, TokenSymbol::JLP);
+        assert_eq!(sol_token.symbol.to_str(), "SOL");
+        assert_eq!(jlp_token.symbol.to_str(), "JLP");
     }
 
     #[test]
-    fn test_tokens() {
-        let registry = TokenRegistry::new();
-        assert!(!registry.tokens.is_empty());
-        assert!(!registry.stable_tokens.is_empty());
+    fn test_pairs() {
+        let pair = get_by_pair_address("jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v_So11111111111111111111111111111111111111112")
+            .unwrap();
+        assert_eq!(pair.len(), 2);
+        assert_eq!(pair[0].symbol.to_str(), "JupSOL");
+        assert_eq!(pair[1].symbol.to_str(), "SOL");
+    }
+
+    #[test]
+    fn test_symbol_conversion() {
+        assert_eq!(TokenSymbolString::from_str("SOL").unwrap().to_str(), "SOL");
+        assert_eq!(
+            TokenSymbolString::from_str("USDC").unwrap().to_str(),
+            "USDC"
+        );
     }
 }
