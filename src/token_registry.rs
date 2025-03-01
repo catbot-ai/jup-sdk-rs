@@ -138,6 +138,16 @@ pub fn get_pair_or_token_address_from_tokens(tokens: &[Token]) -> anyhow::Result
     Ok(address)
 }
 
+pub fn get_symbol_pair_from_tokens(tokens: &[Token]) -> anyhow::Result<String> {
+    let symbol_pair = if tokens.len() == 1 {
+        format!("{}_{}", tokens[0].symbol, "USDT")
+    } else {
+        format!("{}_{}", tokens[0].symbol, tokens[1].symbol)
+    };
+
+    Ok(symbol_pair)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
