@@ -32,7 +32,7 @@ pub enum TokenAddress {
     Deserialize,
 )]
 #[strum(serialize_all = "UPPERCASE")]
-pub enum TokenSymbol {
+pub enum MainTokenSymbol {
     #[default]
     SOL,
     JLP,

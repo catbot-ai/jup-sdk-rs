@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use std::{collections::HashMap, fmt, str::FromStr};
 
-use crate::prices::TokenSymbol;
+use crate::prices::MainTokenSymbol;
 
 // Embedded JSON data
 const TOKENS_JSON: &str = r#"
@@ -142,7 +142,7 @@ impl TokenRegistry {
         self.tokens.iter().find(|t| t.symbol == *symbol_string)
     }
 
-    pub fn get_by_symbol(&self, symbol: &TokenSymbol) -> Option<&Token> {
+    pub fn get_by_symbol(&self, symbol: &MainTokenSymbol) -> Option<&Token> {
         self.tokens.iter().find(|t| t.symbol.0 == *symbol.as_ref())
     }
 
@@ -193,6 +193,12 @@ impl TokenRegistry {
         } else {
             format!("{}_{}", tokens[0].address, tokens[1].address)
         }
+    }
+
+    pub fn default_token() -> Token {
+        get_by_symbol(&TokenSymbolString(MainTokenSymbol::SOL.to_string()))
+            .unwrap()
+            .clone()
     }
 }
 

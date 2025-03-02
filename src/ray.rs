@@ -109,7 +109,7 @@ pub fn get_token_logo_url_by_mint_address(mint_address: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{prices::TokenSymbol, ray, token_registry::TokenRegistry};
+    use crate::{prices::MainTokenSymbol, ray, token_registry::TokenRegistry};
 
     #[tokio::test]
     async fn test_fetch_pool_info_by_id() {
@@ -129,7 +129,7 @@ mod tests {
     #[test]
     fn test_get_logo_by_mint_address() {
         let registry = TokenRegistry::new();
-        let usdc_token = registry.get_by_symbol(&TokenSymbol::USDC).unwrap();
+        let usdc_token = registry.get_by_symbol(&MainTokenSymbol::USDC).unwrap();
         let mint_address = usdc_token.address.clone();
 
         let logo = get_token_logo_url_by_mint_address(&mint_address);
