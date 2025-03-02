@@ -175,7 +175,7 @@ impl PriceFetcher {
                     }
                 }
             } else {
-                return None; // Or handle the error as needed
+                return None;
             }
         }
 
@@ -199,7 +199,7 @@ impl PriceFetcher {
                     }),
                 );
             } else {
-                return None; // Or handle the error as needed
+                return None;
             }
         }
 
