@@ -55,25 +55,25 @@ const PAIRS_JSON: &str = r#"
 
 // TokenSymbol now carries its string representation
 #[derive(Default, Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct TokenSymbolString(String);
+pub struct TokenSymbol(String);
 
-impl<'de> Deserialize<'de> for TokenSymbolString {
+impl<'de> Deserialize<'de> for TokenSymbol {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         let s: String = Deserialize::deserialize(deserializer)?;
-        Ok(TokenSymbolString(s))
+        Ok(TokenSymbol(s))
     }
 }
 
-impl fmt::Display for TokenSymbolString {
+impl fmt::Display for TokenSymbol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-impl AsRef<str> for TokenSymbolString {
+impl AsRef<str> for TokenSymbol {
     fn as_ref(&self) -> &str {
         &self.0
     }
@@ -82,7 +82,7 @@ impl AsRef<str> for TokenSymbolString {
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct Token {
     pub address: String,
-    pub symbol: TokenSymbolString,
+    pub symbol: TokenSymbol,
     pub name: String,
     pub decimals: u8,
     pub stable: bool,
@@ -94,7 +94,7 @@ pub struct TokenRegistry {
     #[allow(unused)]
     pub pairs: Vec<[Token; 2]>,
     pub address_map: HashMap<String, Token>,
-    pub symbol_map: HashMap<String, TokenSymbolString>,
+    pub symbol_map: HashMap<String, TokenSymbol>,
 }
 
 impl TokenRegistry {
@@ -103,7 +103,7 @@ impl TokenRegistry {
         let tokens: Vec<Token> = serde_json::from_str(TOKENS_JSON).expect("Invalid tokens JSON");
 
         // Create symbol map
-        let symbol_map: HashMap<String, TokenSymbolString> = tokens
+        let symbol_map: HashMap<String, TokenSymbol> = tokens
             .iter()
             .map(|t| (t.symbol.0.clone(), t.symbol.clone()))
             .collect();
@@ -138,7 +138,7 @@ impl TokenRegistry {
         self.address_map.get(address)
     }
 
-    pub fn get_by_symbol_string(&self, symbol_string: &TokenSymbolString) -> Option<&Token> {
+    pub fn get_by_symbol_string(&self, symbol_string: &TokenSymbol) -> Option<&Token> {
         self.tokens.iter().find(|t| t.symbol == *symbol_string)
     }
 
@@ -173,7 +173,7 @@ impl TokenRegistry {
             // TODO: support more token?
             vec![Token {
                 address: "So11111111111111111111111111111111111111112_PERPS".to_string(),
-                symbol: TokenSymbolString("SOL_PERPS".to_string()),
+                symbol: TokenSymbol("SOL_PERPS".to_string()),
                 name: "SOL PERPS".to_string(),
                 decimals: 9,
                 stable: false,
@@ -196,7 +196,7 @@ impl TokenRegistry {
     }
 
     pub fn default_token() -> Token {
-        get_by_symbol(&TokenSymbolString(MainTokenSymbol::SOL.to_string()))
+        get_by_symbol(&TokenSymbol(MainTokenSymbol::SOL.to_string()))
             .unwrap()
             .clone()
     }
@@ -208,13 +208,13 @@ impl Default for TokenRegistry {
     }
 }
 
-impl TokenSymbolString {
+impl TokenSymbol {
     pub fn to_str(&self) -> String {
         self.0.to_string()
     }
 }
 
-impl FromStr for TokenSymbolString {
+impl FromStr for TokenSymbol {
     type Err = (); // Use a simple error type (or a custom one)
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -232,7 +232,7 @@ pub fn get_by_address(address: &str) -> Option<&'static Token> {
     REGISTRY.get_by_address(address)
 }
 
-pub fn get_by_symbol(symbol: &TokenSymbolString) -> Option<&'static Token> {
+pub fn get_by_symbol(symbol: &TokenSymbol) -> Option<&'static Token> {
     REGISTRY.get_by_symbol_string(symbol)
 }
 
@@ -265,7 +265,7 @@ mod tests {
     #[test]
     fn test_token_registry_load_and_parse() {
         let sol_token = get_by_address("So11111111111111111111111111111111111111112").unwrap();
-        let jlp_token = get_by_symbol(&TokenSymbolString("JLP".to_string())).unwrap();
+        let jlp_token = get_by_symbol(&TokenSymbol("JLP".to_string())).unwrap();
 
         assert_eq!(sol_token.symbol.to_str(), "SOL");
         assert_eq!(jlp_token.symbol.to_str(), "JLP");
@@ -282,10 +282,7 @@ mod tests {
 
     #[test]
     fn test_symbol_conversion() {
-        assert_eq!(TokenSymbolString::from_str("SOL").unwrap().to_str(), "SOL");
-        assert_eq!(
-            TokenSymbolString::from_str("USDC").unwrap().to_str(),
-            "USDC"
-        );
+        assert_eq!(TokenSymbol::from_str("SOL").unwrap().to_str(), "SOL");
+        assert_eq!(TokenSymbol::from_str("USDC").unwrap().to_str(), "USDC");
     }
 }
