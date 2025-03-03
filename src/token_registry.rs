@@ -248,14 +248,14 @@ pub fn get_pair_or_token_address_from_tokens(tokens: &[Token]) -> String {
     REGISTRY.get_pair_or_token_address_from_tokens(tokens)
 }
 
-pub fn get_symbol_pair_from_tokens(tokens: &[Token]) -> anyhow::Result<String> {
-    let symbol_pair = if tokens.len() == 1 {
+pub fn get_pair_symbol_from_tokens(tokens: &[Token]) -> anyhow::Result<String> {
+    let pair_symbol = if tokens.len() == 1 {
         format!("{}_{}", tokens[0].symbol, "USDT")
     } else {
         format!("{}_{}", tokens[0].symbol, tokens[1].symbol)
     };
 
-    Ok(symbol_pair)
+    Ok(pair_symbol)
 }
 
 #[cfg(test)]
