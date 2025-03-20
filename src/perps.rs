@@ -101,7 +101,6 @@ pub struct PerpsPosition {
     pub side: Side,                // Position side: Long or Short
     pub market_mint: String,       // So11111111111111111111111111111111111111112
     pub collateral_mint: String,   // EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
-    pub confidence: f64,           // Confidence score between 0.0 and 1.0
     pub entry_price: f64,          // Entry price of the position
     pub leverage: f64,             // Leverage used for the position
     pub liquidation_price: f64,    // Liquidation price of the position
@@ -116,7 +115,6 @@ impl From<PositionData> for PerpsPosition {
         let entry_price = position.entry_price.parse().unwrap_or(0.0);
         let leverage = position.leverage.parse().unwrap_or(1.1); // 1x leverage as fallback
         let liquidation_price = position.liquidation_price.parse().unwrap_or(0.0);
-        let confidence = 0.5; // Placeholder; could derive from PNL or external logic
         let pnl_after_fees_usd = position.pnl_after_fees_usd.parse().unwrap_or(0.0);
         let value = position.value.parse().unwrap_or(0.0);
         let target_price = position
@@ -138,7 +136,6 @@ impl From<PositionData> for PerpsPosition {
             side: position.side,
             market_mint: position.market_mint,
             collateral_mint: position.collateral_mint,
-            confidence,
             entry_price,
             leverage,
             liquidation_price,
