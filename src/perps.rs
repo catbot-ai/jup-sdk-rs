@@ -1,5 +1,5 @@
+use super::fetcher::{Fetcher, RetrySettings};
 use anyhow::{anyhow, Result};
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use strum::EnumString;
@@ -150,44 +150,63 @@ impl From<PositionData> for PerpsPosition {
 const PERPS_API_BASE: &str = "https://perps-api.jup.ag/v1";
 
 pub struct PerpsFetcher {
-    client: Client,
-}
-
-impl Default for PerpsFetcher {
-    fn default() -> Self {
-        Self {
-            client: Client::new(),
-        }
-    }
+    // Use the generic Fetcher
+    fetcher: Fetcher,
 }
 
 impl PerpsFetcher {
+    /// Creates a new PerpsFetcher with default retry settings.
+    pub fn new() -> Self {
+        Self {
+            fetcher: Fetcher::new(), // Or Fetcher::default()
+        }
+    }
+
+    /// Creates a new PerpsFetcher with custom retry settings.
+    pub fn with_settings(settings: RetrySettings) -> Self {
+        Self {
+            fetcher: Fetcher::with_settings(settings),
+        }
+    }
+
+    /// Fetches positions from the Jupiter Perps API with retry logic.
     pub async fn fetch_positions(&self, wallet_address: &str) -> Result<PositionsResponse> {
         let url = format!(
             "{}/positions?walletAddress={}&showTpslRequests=true",
             PERPS_API_BASE, wallet_address
         );
-        let response = self.client.get(&url).send().await?;
-        response
-            .json()
+
+        // Use the fetcher's fetch_with_retry method
+        self.fetcher
+            .fetch_with_retry::<PositionsResponse>(&url)
             .await
-            .map_err(|e| anyhow!("Failed to fetch positions: {}", e))
+            .map_err(|e| {
+                anyhow!(
+                    "Failed to fetch positions for wallet {}: {}",
+                    wallet_address,
+                    e
+                )
+            })
     }
 
+    /// Fetches positions, calculates aggregate PNL, and formats the result.
     pub async fn fetch_positions_pnl_and_format(
         &self,
         wallet_address: &str,
     ) -> Result<PositionPNLs> {
+        // This now uses the fetch_positions method which includes retries
         let positions_response = self.fetch_positions(wallet_address).await?;
+
         let mut total_pnl_usd = 0.0;
-        let mut total_pnl_percent = 0.0;
+        let mut total_value = 0.0; // Needed to calculate weighted average PNL percentage
         let mut position_pnls = Vec::new();
 
         for position in positions_response.data_list {
             let pnl_usd = position.pnl_after_fees_usd.parse::<f64>().map_err(|e| {
                 anyhow!(
-                    "Failed to parse pnl_after_fees_usd '{}': {}",
+                    "Failed to parse pnl_after_fees_usd '{}' for position {}: {}",
                     position.pnl_after_fees_usd,
+                    position.position_pubkey,
                     e
                 )
             })?;
@@ -196,86 +215,205 @@ impl PerpsFetcher {
                 .parse::<f64>()
                 .map_err(|e| {
                     anyhow!(
-                        "Failed to parse pnl_change_pct_after_fees '{}': {}",
+                        "Failed to parse pnl_change_pct_after_fees '{}' for position {}: {}",
                         position.pnl_change_pct_after_fees,
+                        position.position_pubkey,
                         e
                     )
                 })?;
+            // Parse value for weighted percentage calculation
+            let value_usd = position.value.parse::<f64>().map_err(|e| {
+                anyhow!(
+                    "Failed to parse value '{}' for position {}: {}",
+                    position.value,
+                    position.position_pubkey,
+                    e
+                )
+            })?;
 
             total_pnl_usd += pnl_usd;
-            total_pnl_percent += pnl_percent;
+            // Accumulate value for weighted average calculation
+            if value_usd > 0.0 {
+                // Avoid division by zero or issues with negative value if possible
+                total_value += value_usd;
+            }
+
             position_pnls.push(PositionPNL {
                 position_pubkey: position.position_pubkey.clone(),
                 side: position.side.clone(),
                 pnl_usd,
-                pnl_percent,
+                pnl_percent, // Keep individual percent if needed
             });
         }
 
+        // Calculate a weighted average PNL percentage if total value is positive
+        let total_pnl_percent_avg = if total_value > 0.0 {
+            // Calculate weighted average: sum(pnl_usd_i) / sum(value_usd_i) * 100
+            // Or approximate by (total_pnl_usd / (total_value - total_pnl_usd)) * 100 if 'value' is collateral+pnl
+            // Simpler: total_pnl_usd / total_value * 100 if 'value' is current total value including PNL
+            // The direct sum `total_pnl_percent` is usually not meaningful. Let's calculate a weighted average.
+            (total_pnl_usd / total_value) * 100.0 // Assuming 'value' is the total current value
+        } else {
+            0.0 // Avoid division by zero
+        };
+
         Ok(PositionPNLs {
             total_pnl_usd,
-            total_pnl_percent,
+            // Use the calculated weighted average percentage instead of summing percentages
+            total_pnl_percent: total_pnl_percent_avg,
             position_pnls,
         })
     }
 
-    // New method to fetch and convert to PerpsPosition
+    /// Fetches positions and converts them into a simplified `PerpsPosition` format.
     pub async fn fetch_perps_positions(&self, wallet_address: &str) -> Result<Vec<PerpsPosition>> {
+        // This now uses the fetch_positions method which includes retries
         let positions_response = self.fetch_positions(wallet_address).await?;
         Ok(positions_response
             .data_list
             .into_iter()
-            .map(PerpsPosition::from)
+            .map(PerpsPosition::from) // Note: Consider handling potential errors from `from` if it were changed to return Result
             .collect())
+    }
+}
+
+// Implement Default for PerpsFetcher for convenience
+impl Default for PerpsFetcher {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
+
+    // Helper to initialize logging for tests
+    fn setup() {
+        // Run `export RUST_LOG=warn` or similar before running tests to see logs
+        let _ = env_logger::builder().is_test(true).try_init();
+    }
 
     #[tokio::test]
-    async fn test_fetch_positions() -> Result<()> {
-        dotenvy::from_filename(".env").expect("No .env file");
-        let wallet_address = std::env::var("WALLET_ADDRESS").expect("WALLET_ADDRESS not set");
+    async fn test_fetch_positions_with_retry() -> Result<()> {
+        setup();
+        dotenvy::from_filename(".env").ok(); // Use .ok() to not panic if .env is missing
+        let wallet_address =
+            std::env::var("WALLET_ADDRESS").expect("WALLET_ADDRESS not set in .env");
 
+        // Use default settings which include retries
         let perps_fetcher = PerpsFetcher::default();
+        println!("Fetching positions for {} with retry...", wallet_address);
+
         let positions = perps_fetcher.fetch_positions(&wallet_address).await?;
-        println!("Fetched {:#?} positions:", positions);
+        println!(
+            "Fetched {} positions for wallet {}",
+            positions.count, wallet_address
+        );
+        // Add assertions or more detailed checks if needed
+        assert!(positions.count >= 0); // Basic check
+
         if let Some(pos) = positions.data_list.first() {
+            println!("First position details: {:#?}", pos);
             println!(
-                "First position: {} {}x, PNL: {}, TP: {:?}, SL: {:?}",
+                "First position summary: {} {}x, PNL: {}, TP: {:?}, SL: {:?}",
                 pos.side,
                 pos.leverage,
                 pos.pnl_after_fees_usd,
-                pos.tpsl_requests.tp,
-                pos.tpsl_requests.sl
+                pos.tpsl_requests.tp.as_ref().map(|r| &r.trigger_price_usd),
+                pos.tpsl_requests.sl.as_ref().map(|r| &r.trigger_price_usd)
             );
-            println!("Raw tpsl_requests: {:?}", pos.tpsl_requests);
         } else {
-            println!("No positions found.");
+            println!("No positions found for this wallet.");
         }
         Ok(())
     }
 
     #[tokio::test]
-    async fn test_fetch_perps_positions() -> Result<()> {
-        dotenvy::from_filename(".env").expect("No .env file");
-        let wallet_address = std::env::var("WALLET_ADDRESS").expect("WALLET_ADDRESS not set");
+    async fn test_fetch_perps_positions_conversion() -> Result<()> {
+        setup();
+        dotenvy::from_filename(".env").ok();
+        let wallet_address =
+            std::env::var("WALLET_ADDRESS").expect("WALLET_ADDRESS not set in .env");
 
         let perps_fetcher = PerpsFetcher::default();
+        println!(
+            "Fetching and converting PerpsPositions for {}...",
+            wallet_address
+        );
+
         let perps_positions = perps_fetcher.fetch_perps_positions(&wallet_address).await?;
-        println!("Fetched {} perps positions:", perps_positions.len());
+        println!("Fetched {} PerpsPosition(s):", perps_positions.len());
 
         if let Some(pos) = perps_positions.first() {
-            println!("{:#?}", perps_positions);
-            println!(
-                "First position: {} {}x, PNL: {}, TP: {:?}, SL: {:?}",
-                pos.side, pos.leverage, pos.entry_price, pos.pnl_after_fees_usd, pos.value
-            );
+            println!("First PerpsPosition: {:#?}", pos);
+            assert!(pos.leverage >= 1.0); // Leverage should be >= 1
+                                          // Add more assertions based on expected data structure
         } else {
-            println!("No perps positions found.");
+            println!("No perps positions found to convert.");
         }
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_fetch_positions_pnl_format() -> Result<()> {
+        setup();
+        dotenvy::from_filename(".env").ok();
+        let wallet_address =
+            std::env::var("WALLET_ADDRESS").expect("WALLET_ADDRESS not set in .env");
+
+        let perps_fetcher = PerpsFetcher::default();
+        println!("Fetching PNL summary for {}...", wallet_address);
+
+        let pnl_summary = perps_fetcher
+            .fetch_positions_pnl_and_format(&wallet_address)
+            .await?;
+        println!("PNL Summary: {:#?}", pnl_summary);
+
+        // Basic assertion: Check if total PNL is a valid number
+        assert!(pnl_summary.total_pnl_usd.is_finite());
+        assert!(pnl_summary.total_pnl_percent.is_finite());
+        assert_eq!(
+            pnl_summary.position_pnls.len(),
+            perps_fetcher
+                .fetch_positions(&wallet_address)
+                .await?
+                .data_list
+                .len()
+        );
+
+        Ok(())
+    }
+
+    // Optional: Test with custom settings (e.g., shorter timeout to force failure/retry)
+    #[tokio::test]
+    async fn test_fetch_with_custom_settings_timeout() {
+        setup();
+        dotenvy::from_filename(".env").ok();
+        let wallet_address =
+            std::env::var("WALLET_ADDRESS").expect("WALLET_ADDRESS not set in .env");
+
+        // Configure extremely short timeout to likely trigger retries or failure
+        let settings = RetrySettings::default()
+            .with_request_timeout(Duration::from_millis(10)) // Very short timeout
+            .with_max_retries(2); // Limit retries
+
+        let perps_fetcher = PerpsFetcher::with_settings(settings);
+        println!(
+            "Fetching positions for {} with short timeout...",
+            wallet_address
+        );
+
+        let result = perps_fetcher.fetch_positions(&wallet_address).await;
+
+        // Expecting an error due to timeout
+        assert!(result.is_err());
+        if let Err(e) = result {
+            println!("Received expected error: {}", e);
+            assert!(
+                e.to_string().contains("timed out") || e.to_string().contains("after 2 retries")
+            );
+        }
     }
 }

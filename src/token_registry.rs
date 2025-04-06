@@ -195,6 +195,14 @@ impl TokenRegistry {
         }
     }
 
+    pub fn get_pair_or_token_symbol_from_tokens(&self, tokens: &[Token]) -> String {
+        if tokens.len() == 1 {
+            tokens[0].symbol.to_string()
+        } else {
+            format!("{}_{}", tokens[0].symbol, tokens[1].symbol)
+        }
+    }
+
     pub fn default_token() -> Token {
         get_by_symbol(&TokenSymbol(MainTokenSymbol::SOL.to_string()))
             .unwrap()
@@ -250,12 +258,18 @@ pub fn get_pair_or_token_address_from_tokens(tokens: &[Token]) -> String {
 
 pub fn get_pair_symbol_from_tokens(tokens: &[Token]) -> anyhow::Result<String> {
     let pair_symbol = if tokens.len() == 1 {
-        format!("{}_{}", tokens[0].symbol, "USDT")
+        format!("{}_{}", tokens[0].symbol, "USDC")
     } else {
         format!("{}_{}", tokens[0].symbol, tokens[1].symbol)
     };
 
     Ok(pair_symbol)
+}
+
+pub fn get_pair_or_token_symbol_from_pair_address(pair_address: &str) -> anyhow::Result<String> {
+    let tokens: Vec<Token> =
+        get_by_pair_address(pair_address).expect(&format!("Not support:{}", pair_address));
+    Ok(REGISTRY.get_pair_or_token_symbol_from_tokens(&tokens))
 }
 
 #[cfg(test)]
