@@ -1,5 +1,5 @@
 use crate::{
-    ray::{fetch_pool_info_by_id, PoolId},
+    ray::{fetch_pool_info_by_id, PoolId}, // This function now uses Fetcher internally
     token_registry::Token,
 };
 
@@ -42,6 +42,7 @@ pub enum TokenOrPairPriceInfo {
 pub type TokenOrPairAddress = String;
 
 pub async fn get_price_by_token_id(pool_id: PoolId) -> anyhow::Result<f64> {
+    // This now uses the refactored version from ray.rs which includes Fetcher logic
     let pool_info = fetch_pool_info_by_id(pool_id).await?;
 
     // Get price from pool that match id

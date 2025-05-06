@@ -1,3 +1,4 @@
+pub mod compat;
 pub mod feeder;
 pub mod fetcher;
 pub mod formatter;

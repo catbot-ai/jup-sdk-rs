@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use strum_macros::{Display, EnumString};
+use crate::fetcher::Fetcher; // Import Fetcher
 
 #[derive(EnumString, Display, Debug, Clone)]
 pub enum PoolId {
@@ -87,19 +88,26 @@ pub struct Settings {
     pub default_range_point: Vec<f64>,
 }
 
-async fn fetch_pool_info(url: &str) -> anyhow::Result<PoolInfoResponse> {
-    let json = reqwest::get(url).await?.json::<PoolInfoResponse>().await?;
-
-    Ok(json)
+// Use the Fetcher for consistency and retry logic
+async fn fetch_pool_info_internal(url: &str) -> anyhow::Result<PoolInfoResponse> {
+    // Create a default fetcher instance. Consider passing it if needed elsewhere.
+    let fetcher = Fetcher::default();
+    fetcher.fetch_with_retry::<PoolInfoResponse>(url).await
 }
 
+// Public function name remains the same
 #[allow(dead_code)]
 pub async fn fetch_pool_info_by_id(id: PoolId) -> anyhow::Result<PoolData> {
-    let pool_info =
-        fetch_pool_info(format!("{RAYDIUM_BASE_API}/pools/info/ids?ids={id}").as_str()).await;
+    let url = format!("{RAYDIUM_BASE_API}/pools/info/ids?ids={id}");
+    let pool_info = fetch_pool_info_internal(&url).await?;
 
-    Ok(pool_info?.data[0].clone())
+    // Assuming the API always returns data if successful and the ID exists
+    // Need to handle potential empty data list if ID not found
+    pool_info.data.into_iter().next().ok_or_else(|| {
+        anyhow::anyhow!("Pool data not found for ID: {}", id)
+    })
 }
+
 
 #[allow(dead_code)]
 pub fn get_token_logo_url_by_mint_address(mint_address: &str) -> String {
@@ -108,19 +116,26 @@ pub fn get_token_logo_url_by_mint_address(mint_address: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    // Only run tests if native feature is enabled
+    #![cfg(all(test, feature = "native"))]
+
     use super::*;
     use crate::{prices::MainTokenSymbol, ray, token_registry::TokenRegistry};
 
+    // Requires tokio runtime, so only build/run with 'native' feature
     #[tokio::test]
     async fn test_fetch_pool_info_by_id() {
         let id = ray::PoolId::SOL_JLP;
-        let pool_info = fetch_pool_info_by_id(id).await;
+        let pool_info_result = fetch_pool_info_by_id(id).await;
 
         // Result
-        println!("{pool_info:#?}");
+        println!("{pool_info_result:#?}");
+
+        // Assert result is Ok before unwrapping
+        assert!(pool_info_result.is_ok());
 
         // Get price from pool that match id
-        let price = pool_info.unwrap().price;
+        let price = pool_info_result.unwrap().price;
 
         println!("{price:#?}");
         assert!(price > 0.0);

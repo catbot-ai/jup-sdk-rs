@@ -286,18 +286,23 @@ impl Default for PerpsFetcher {
 
 #[cfg(test)]
 mod tests {
+    // Only run tests if native feature is enabled
+    #![cfg(all(test, feature = "native"))]
+
     use super::*;
     use std::time::Duration;
 
-    // Helper to initialize logging for tests
     fn setup() {
         // Run `export RUST_LOG=warn` or similar before running tests to see logs
+        // Requires the `env_logger` and `log` features to be enabled for the test build
+        #[cfg(feature = "env_logger")]
         let _ = env_logger::builder().is_test(true).try_init();
     }
 
     #[tokio::test]
     async fn test_fetch_positions_with_retry() -> Result<()> {
         setup();
+        // dotenvy requires the 'native' feature
         dotenvy::from_filename(".env").ok(); // Use .ok() to not panic if .env is missing
         let wallet_address =
             std::env::var("WALLET_ADDRESS").expect("WALLET_ADDRESS not set in .env");
@@ -333,6 +338,7 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_perps_positions_conversion() -> Result<()> {
         setup();
+        // dotenvy requires the 'native' feature
         dotenvy::from_filename(".env").ok();
         let wallet_address =
             std::env::var("WALLET_ADDRESS").expect("WALLET_ADDRESS not set in .env");
@@ -359,6 +365,7 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_positions_pnl_format() -> Result<()> {
         setup();
+        // dotenvy requires the 'native' feature
         dotenvy::from_filename(".env").ok();
         let wallet_address =
             std::env::var("WALLET_ADDRESS").expect("WALLET_ADDRESS not set in .env");
@@ -390,6 +397,7 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_with_custom_settings_timeout() {
         setup();
+        // dotenvy requires the 'native' feature
         dotenvy::from_filename(".env").ok();
         let wallet_address =
             std::env::var("WALLET_ADDRESS").expect("WALLET_ADDRESS not set in .env");
@@ -411,6 +419,7 @@ mod tests {
         assert!(result.is_err());
         if let Err(e) = result {
             println!("Received expected error: {}", e);
+            // Check for timeout message OR the retry limit message
             assert!(
                 e.to_string().contains("timed out") || e.to_string().contains("after 2 retries")
             );
