@@ -21,15 +21,29 @@ pub async fn sleep(duration: Duration) {
 // --- Timeout ---
 
 #[cfg(not(feature = "worker"))]
-/// Platform-agnostic timeout function.
+/// Platform-agnostic timeout function (using tokio::select to avoid Send bound).
 pub async fn timeout<F, T>(duration: Duration, future: F) -> Result<T>
 where
-    F: Future<Output = Result<T>> + Send, // Future must be Send for tokio
-    T: Send + 'static,                    // Result must be Send for tokio
+    F: Future<Output = Result<T>>, // <-- Remove Send bound
+    T: 'static,                    // <-- Remove Send bound, keep 'static for select!
 {
-    tokio::time::timeout(duration, future)
-        .await
-        .map_err(|_| anyhow!("Operation timed out after {:?}", duration))? // Convert TimeoutElapsed to anyhow::Error
+    use tokio::select;
+    use tokio::time::sleep; // Use tokio's sleep for the delay
+
+    // Pin the future on the stack (needed for select!)
+    tokio::pin!(future);
+
+    select! {
+        biased; // Optional: prioritize the future completion slightly
+        result = &mut future => {
+            // The future completed first
+            result
+        }
+        _ = sleep(duration) => {
+            // The delay completed first
+            Err(anyhow!("Operation timed out after {:?}", duration))
+        }
+    }
 }
 
 #[cfg(feature = "worker")]
