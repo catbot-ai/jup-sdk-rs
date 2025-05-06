@@ -267,8 +267,8 @@ pub fn get_pair_symbol_from_tokens(tokens: &[Token]) -> anyhow::Result<String> {
 }
 
 pub fn get_pair_or_token_symbol_from_pair_address(pair_address: &str) -> anyhow::Result<String> {
-    let tokens: Vec<Token> =
-        get_by_pair_address(pair_address).expect(&format!("Not support:{}", pair_address));
+    let error_text = format!("Not support:{}", pair_address);
+    let tokens: Vec<Token> = get_by_pair_address(pair_address).expect(&error_text);
     Ok(REGISTRY.get_pair_or_token_symbol_from_tokens(&tokens))
 }
 

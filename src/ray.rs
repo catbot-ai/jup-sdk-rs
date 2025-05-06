@@ -1,7 +1,7 @@
+use crate::fetcher::Fetcher;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use strum_macros::{Display, EnumString};
-use crate::fetcher::Fetcher; // Import Fetcher
+use strum_macros::{Display, EnumString}; // Import Fetcher
 
 #[derive(EnumString, Display, Debug, Clone)]
 pub enum PoolId {
@@ -103,22 +103,21 @@ pub async fn fetch_pool_info_by_id(id: PoolId) -> anyhow::Result<PoolData> {
 
     // Assuming the API always returns data if successful and the ID exists
     // Need to handle potential empty data list if ID not found
-    pool_info.data.into_iter().next().ok_or_else(|| {
-        anyhow::anyhow!("Pool data not found for ID: {}", id)
-    })
+    pool_info
+        .data
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("Pool data not found for ID: {}", id))
 }
-
 
 #[allow(dead_code)]
 pub fn get_token_logo_url_by_mint_address(mint_address: &str) -> String {
     format!("https://img.raydium.io/icon/{mint_address}.png")
 }
 
+#[cfg(all(test, feature = "native"))]
 #[cfg(test)]
 mod tests {
-    // Only run tests if native feature is enabled
-    #![cfg(all(test, feature = "native"))]
-
     use super::*;
     use crate::{prices::MainTokenSymbol, ray, token_registry::TokenRegistry};
 

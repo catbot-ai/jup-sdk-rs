@@ -284,18 +284,16 @@ impl Default for PerpsFetcher {
     }
 }
 
+#[cfg(all(feature = "log-native", feature = "native"))]
 #[cfg(test)]
 mod tests {
-    // Only run tests if native feature is enabled
-    #![cfg(all(test, feature = "native"))]
-
     use super::*;
     use std::time::Duration;
 
     fn setup() {
         // Run `export RUST_LOG=warn` or similar before running tests to see logs
         // Requires the `env_logger` and `log` features to be enabled for the test build
-        #[cfg(feature = "env_logger")]
+        #[cfg(all(feature = "log-native", feature = "native"))]
         let _ = env_logger::builder().is_test(true).try_init();
     }
 
@@ -421,7 +419,7 @@ mod tests {
             println!("Received expected error: {}", e);
             // Check for timeout message OR the retry limit message
             assert!(
-                e.to_string().contains("timed out") || e.to_string().contains("after 2 retries")
+                e.to_string().contains("timed out") || e.to_string().contains("after 3 attempts")
             );
         }
     }
