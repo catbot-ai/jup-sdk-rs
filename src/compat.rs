@@ -24,8 +24,8 @@ pub async fn sleep(duration: Duration) {
 /// Platform-agnostic timeout function (using tokio::select to avoid Send bound).
 pub async fn timeout<F, T>(duration: Duration, future: F) -> Result<T>
 where
-    F: Future<Output = Result<T>>, // <-- Remove Send bound
-    T: 'static,                    // <-- Remove Send bound, keep 'static for select!
+    F: Future<Output = Result<T>>,
+    T: 'static, // 'static required for select
 {
     use tokio::select;
     use tokio::time::sleep; // Use tokio's sleep for the delay
